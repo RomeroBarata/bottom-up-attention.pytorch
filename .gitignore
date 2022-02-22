@@ -1,8 +1,10 @@
 /bottom_up_attention.pytorch.egg-info/
 __pycache__/
+.idea/
 .ipynb_checkpoints/
+/apex
 /build/
-/datasets/visual_genome/
+/datasets/visual_genome
 /extract/
 /output/
 /output_caffe152/
