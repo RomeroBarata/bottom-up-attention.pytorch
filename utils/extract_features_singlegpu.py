@@ -9,7 +9,7 @@ import argparse
 import os
 import sys
 import torch
-# import tqdm
+from tqdm import tqdm
 import cv2
 import numpy as np
 sys.path.append('detectron2')
@@ -113,7 +113,7 @@ def extract_feat_singlegpu(split_idx, img_list, cfg, args):
     )
     model.eval()
 
-    for im_file in img_list:
+    for im_file in tqdm(img_list):
         if os.path.exists(os.path.join(args.output_dir, im_file.split('.')[0]+'.npz')):
             continue
         im = cv2.imread(os.path.join(args.image_dir, im_file))
