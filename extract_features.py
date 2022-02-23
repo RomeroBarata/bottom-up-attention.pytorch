@@ -134,7 +134,9 @@ def main():
                         help='NMS value for filtering detections.')
 
     parser.add_argument('--out-dir', dest='output_dir',
-                        help='output directory for features',
+                        help='Output directory for features. A subdirectory is is created in it for the specific '
+                             'video being processed, where the name is obtained from the basename of the '
+                             'image_dir path.',
                         default="features")
     parser.add_argument('--image-dir', dest='image_dir',
                         help='directory with images',
@@ -157,6 +159,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    args.output_dir = os.path.join(args.output_dir, os.path.basename(args.image_dir))
+    os.makedirs(args.output_dir, exist_ok=True)
 
     cfg = setup(args)
     num_gpus = len(args.gpu_id.split(','))
