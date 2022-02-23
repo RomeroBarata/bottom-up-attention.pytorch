@@ -8,6 +8,7 @@ __pycache__/
 /extract/
 /output/
 /output_caffe152/
+/tmp-output/
 *.pth
 *.pkl
 *.so

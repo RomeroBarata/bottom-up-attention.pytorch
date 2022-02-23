@@ -98,6 +98,7 @@ def setup(args):
     cfg.merge_from_list(set_min_max_boxes(args.min_max_boxes))
     cfg.merge_from_list(set_conf_thresh(args.conf_thresh))
     cfg.merge_from_list(set_nms_thresh(args.nms_thresh))
+    cfg.OUTPUT_DIR = './tmp-output'  # During feature extraction there is no need to create an output dir
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
