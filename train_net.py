@@ -44,8 +44,6 @@ class Trainer(DefaultTrainer):
             return build_detection_test_loader_with_attributes(cfg, dataset_name)
         else:
             raise Exception("detectron mode note supported: {}".format(args.model))
-        
-
 
     @classmethod
     def build_train_loader(cls, cfg):
@@ -79,15 +77,19 @@ class Trainer(DefaultTrainer):
         losses.backward()
         self.optimizer.step()
 
+
 def setup(args):
     """
     Create configs and perform basic setups.
     """
     cfg = get_cfg()
+    if args.include_small_anchor:
+        cfg['MODEL']['ANCHOR_GENERATOR']['SIZES'] = [[24, 32, 64, 128, 256, 512]]
     add_config(args, cfg)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
     cfg.MODE = args.mode
+    cfg.OUTPUT_DIR = args.output_dir
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
