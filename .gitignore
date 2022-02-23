@@ -10,3 +10,4 @@ __pycache__/
 /output_caffe152/
 *.pth
 *.pkl
+*.so
