@@ -7,6 +7,7 @@ from detectron2.config import CfgNode as CN
 config for mode detectron2
 """
 
+
 def add_attribute_config(cfg):
     """
     Add config for attribute prediction.
@@ -54,4 +55,5 @@ def add_attribute_config(cfg):
     _C.MODEL.BUA.EXTRACTOR.MIN_BOXES = 10
     _C.MODEL.BUA.EXTRACTOR.MAX_BOXES = 100
     _C.MODEL.BUA.EXTRACTOR.CONF_THRESH = 0.2
+    _C.MODEL.BUA.EXTRACTOR.NMS_THRESH = 0.3
     _C.MODEL.BUA.EXTRACTOR.OUTPUT_DIR = ".output/"

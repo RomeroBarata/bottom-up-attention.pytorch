@@ -30,6 +30,7 @@ from bua.caffe.modeling.box_regression import BUABoxes
 from torch.nn import functional as F
 from detectron2.modeling import postprocessing
 
+
 def switch_extract_mode(mode):
     if mode == 'roi_feats':
         switch_cmd = ['MODEL.BUA.EXTRACTOR.MODE', 1]
@@ -42,6 +43,7 @@ def switch_extract_mode(mode):
         exit()
     return switch_cmd
 
+
 def set_min_max_boxes(min_max_boxes):
     if min_max_boxes == 'min_max_default':
         return []
@@ -51,9 +53,10 @@ def set_min_max_boxes(min_max_boxes):
     except:
         print('Illegal min-max boxes setting, using config default. ')
         return []
-    cmd = ['MODEL.BUA.EXTRACTOR.MIN_BOXES', min_boxes, 
-            'MODEL.BUA.EXTRACTOR.MAX_BOXES', max_boxes]
+    cmd = ['MODEL.BUA.EXTRACTOR.MIN_BOXES', min_boxes,
+           'MODEL.BUA.EXTRACTOR.MAX_BOXES', max_boxes]
     return cmd
+
 
 def setup(args):
     """
@@ -63,12 +66,13 @@ def setup(args):
     add_config(args, cfg)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
-    cfg.merge_from_list(['MODEL.BUA.EXTRACT_FEATS',True])
+    cfg.merge_from_list(['MODEL.BUA.EXTRACT_FEATS', True])
     cfg.merge_from_list(switch_extract_mode(args.extract_mode))
     cfg.merge_from_list(set_min_max_boxes(args.min_max_boxes))
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
+
 
 def generate_npz(extract_mode, *args):
     if extract_mode == 1:
@@ -80,7 +84,8 @@ def generate_npz(extract_mode, *args):
     else:
         print('Invalid Extract Mode! ')
 
-def model_inference(model, batched_inputs, args, attribute_on=False):
+
+def model_inference(model, batched_inputs, args, attribute_on=False, return_logits=False):
     if args.mode == "caffe":
         return model(batched_inputs)
     elif args.mode == "d2":
@@ -93,11 +98,12 @@ def model_inference(model, batched_inputs, args, attribute_on=False):
             assert "proposals" in batched_inputs[0]
             proposals = [x["proposals"].to(model.device) for x in batched_inputs]
         
-        return model.roi_heads(images, features, proposals, None)
+        return model.roi_heads(images, features, proposals, None, return_logits)
     else:
         raise Exception("detection model not supported: {}".format(args.model))
 
-def extract_feat_singlegpu(split_idx, img_list, cfg, args):  
+
+def extract_feat_singlegpu(split_idx, img_list, cfg, args):
     num_images = len(img_list)
     print('Number of images on split{}: {}.'.format(split_idx, num_images))
 
@@ -107,7 +113,7 @@ def extract_feat_singlegpu(split_idx, img_list, cfg, args):
     )
     model.eval()
 
-    for im_file in (img_list):
+    for im_file in img_list:
         if os.path.exists(os.path.join(args.output_dir, im_file.split('.')[0]+'.npz')):
             continue
         im = cv2.imread(os.path.join(args.image_dir, im_file))
@@ -120,26 +126,29 @@ def extract_feat_singlegpu(split_idx, img_list, cfg, args):
             attr_scores = None
             with torch.set_grad_enabled(False):
                 if cfg.MODEL.BUA.ATTRIBUTE_ON:
-                    boxes, scores, features_pooled, attr_scores = model_inference(model, [dataset_dict],args,True)
+                    boxes, scores, features_pooled, attr_scores, logits = \
+                        model_inference(model, [dataset_dict], args, attribute_on=True, return_logits=True)
                 else:
-                    boxes, scores, features_pooled = model_inference(model, [dataset_dict],args,False)
+                    boxes, scores, features_pooled, logits = model_inference(model, [dataset_dict], args,
+                                                                             attribute_on=False, return_logits=True)
             boxes = [box.tensor.cpu() for box in boxes]
+            logits = [logit.cpu() for logit in logits]
             scores = [score.cpu() for score in scores]
             features_pooled = [feat.cpu() for feat in features_pooled]
-            if not attr_scores is None:
+            if attr_scores is not None:
                 attr_scores = [attr_score.cpu() for attr_score in attr_scores]
-            generate_npz(1, 
-                args, cfg, im_file, im, dataset_dict, 
-                boxes, scores, features_pooled, attr_scores)
+            generate_npz(cfg.MODEL.BUA.EXTRACTOR.MODE,
+                         args, cfg, im_file, im, dataset_dict,
+                         boxes, scores, features_pooled, logits, attr_scores)
         # extract bbox only
         elif cfg.MODEL.BUA.EXTRACTOR.MODE == 2:
             with torch.set_grad_enabled(False):
-                boxes, scores = model_inference(model, [dataset_dict],args,False)
+                boxes, scores = model_inference(model, [dataset_dict], args, False)
             boxes = [box.cpu() for box in boxes]
             scores = [score.cpu() for score in scores]
             generate_npz(2,
-                args, cfg, im_file, im, dataset_dict, 
-                boxes, scores)
+                         args, cfg, im_file, im, dataset_dict,
+                         boxes, scores)
         # extract roi features by bbox
         elif cfg.MODEL.BUA.EXTRACTOR.MODE == 3:
             if not os.path.exists(os.path.join(args.bbox_dir, im_file.split('.')[0]+'.npz')):
@@ -152,17 +161,17 @@ def extract_feat_singlegpu(split_idx, img_list, cfg, args):
             attr_scores = None
             with torch.set_grad_enabled(False):
                 if cfg.MODEL.BUA.ATTRIBUTE_ON:
-                    boxes, scores, features_pooled, attr_scores = model_inference(model, [dataset_dict],args,True)
+                    boxes, scores, features_pooled, attr_scores = model_inference(model, [dataset_dict], args, True)
                 else:
-                    boxes, scores, features_pooled = model_inference(model, [dataset_dict],args,False)
+                    boxes, scores, features_pooled = model_inference(model, [dataset_dict], args, False)
             boxes = [box.tensor.cpu() for box in boxes]
             scores = [score.cpu() for score in scores]
             features_pooled = [feat.cpu() for feat in features_pooled]
-            if not attr_scores is None:
+            if attr_scores is not None:
                 attr_scores = [attr_score.data.cpu() for attr_score in attr_scores]
-            generate_npz(3, 
-                args, cfg, im_file, im, dataset_dict, 
-                boxes, scores, features_pooled, attr_scores)
+            generate_npz(3,
+                         args, cfg, im_file, im, dataset_dict,
+                         boxes, scores, features_pooled, attr_scores)
 
 
 def main():
@@ -215,27 +224,24 @@ def main():
     args = parser.parse_args()
 
     cfg = setup(args)
-    extract_feat_singlegpu_start(args,cfg)
+    extract_feat_singlegpu_start(args, cfg)
 
-def extract_feat_singlegpu_start(args,cfg):
+
+def extract_feat_singlegpu_start(args, cfg):
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
     num_gpus = len(args.gpu_id.split(','))
 
-    MIN_BOXES = cfg.MODEL.BUA.EXTRACTOR.MIN_BOXES
-    MAX_BOXES = cfg.MODEL.BUA.EXTRACTOR.MAX_BOXES
-    CONF_THRESH = cfg.MODEL.BUA.EXTRACTOR.CONF_THRESH
-
     # Extract features.
-    imglist = os.listdir(args.image_dir)
-    num_images = len(imglist)
+    img_list = os.listdir(args.image_dir)
+    num_images = len(img_list)
     print('Number of images: {}.'.format(num_images))
 
-    img_lists = [imglist[i::num_gpus] for i in range(num_gpus)]
+    img_lists = [img_list[i::num_gpus] for i in range(num_gpus)]
 
     print('Number of GPUs: {}.'.format(num_gpus))
     for i in range(num_gpus):
         extract_feat_singlegpu(i, img_lists[i], cfg, args)
-    
+
 
 if __name__ == "__main__":
     main()

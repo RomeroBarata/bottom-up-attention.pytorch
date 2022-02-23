@@ -33,6 +33,7 @@ from utils.extract_features_singlegpu import extract_feat_singlegpu_start
 from utils.extract_features_multigpu import extract_feat_multigpu_start
 from utils.extract_features_faster import extract_feat_faster_start
 
+
 def switch_extract_mode(mode):
     if mode == 'roi_feats':
         switch_cmd = ['MODEL.BUA.EXTRACTOR.MODE', 1]
@@ -41,9 +42,10 @@ def switch_extract_mode(mode):
     elif mode == 'bbox_feats':
         switch_cmd = ['MODEL.BUA.EXTRACTOR.MODE', 3, 'MODEL.PROPOSAL_GENERATOR.NAME', 'PrecomputedProposals']
     else:
-        print('Wrong extract mode! ')
+        print('Wrong extract mode!')
         exit()
     return switch_cmd
+
 
 def set_min_max_boxes(min_max_boxes):
     if min_max_boxes == 'min_max_default':
@@ -54,9 +56,34 @@ def set_min_max_boxes(min_max_boxes):
     except:
         print('Illegal min-max boxes setting, using config default. ')
         return []
-    cmd = ['MODEL.BUA.EXTRACTOR.MIN_BOXES', min_boxes, 
-            'MODEL.BUA.EXTRACTOR.MAX_BOXES', max_boxes]
+    cmd = ['MODEL.BUA.EXTRACTOR.MIN_BOXES', min_boxes,
+           'MODEL.BUA.EXTRACTOR.MAX_BOXES', max_boxes]
     return cmd
+
+
+def set_conf_thresh(conf_thresh):
+    if conf_thresh == 'conf_thresh_default':
+        return []
+    try:
+        conf_thresh = float(conf_thresh)
+    except ValueError:
+        print('Illegal conf-thresh setting. Using config default.')
+        return []
+    cmd = ['MODEL.BUA.EXTRACTOR.CONF_THRESH', conf_thresh]
+    return cmd
+
+
+def set_nms_thresh(nms):
+    if nms == 'nms_default':
+        return []
+    try:
+        nms = float(nms)
+    except ValueError:
+        print('Illegal nms-thresh setting. Using config default.')
+        return []
+    cmd = ['MODEL.BUA.EXTRACTOR.NMS_THRESH', nms]
+    return cmd
+
 
 def setup(args):
     """
@@ -66,12 +93,15 @@ def setup(args):
     add_config(args, cfg)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
-    cfg.merge_from_list(['MODEL.BUA.EXTRACT_FEATS',True])
+    cfg.merge_from_list(['MODEL.BUA.EXTRACT_FEATS', True])
     cfg.merge_from_list(switch_extract_mode(args.extract_mode))
     cfg.merge_from_list(set_min_max_boxes(args.min_max_boxes))
+    cfg.merge_from_list(set_conf_thresh(args.conf_thresh))
+    cfg.merge_from_list(set_nms_thresh(args.nms_thresh))
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
+
 
 def main():
     parser = argparse.ArgumentParser(description="PyTorch Object Detection2 Inference")
@@ -89,15 +119,19 @@ def main():
                         default='0', type=str)
 
     parser.add_argument("--mode", default="caffe", type=str, help="'caffe' and 'd2' indicates \
-                        'use caffe model' and 'use detectron2 model'respectively")
+                        'use caffe model' and 'use detectron2 model', respectively")
 
     parser.add_argument('--extract-mode', default='roi_feats', type=str,
                         help="'roi_feats', 'bboxes' and 'bbox_feats' indicates \
-                        'extract roi features directly', 'extract bboxes only' and \
-                        'extract roi features with pre-computed bboxes' respectively")
+                        'extract roi features directly', 'extract bboxes only', and \
+                        'extract roi features with pre-computed bboxes', respectively")
 
     parser.add_argument('--min-max-boxes', default='min_max_default', type=str, 
                         help='the number of min-max boxes of extractor')
+    parser.add_argument('--conf-thresh', default='conf_thresh_default', type=str,
+                        help='The confidence threshold to keep detected objects.')
+    parser.add_argument('--nms-thresh', default='nms_default', type=str,
+                        help='NMS value for filtering detections.')
 
     parser.add_argument('--out-dir', dest='output_dir',
                         help='output directory for features',
@@ -106,7 +140,7 @@ def main():
                         help='directory with images',
                         default="image")
     parser.add_argument('--bbox-dir', dest='bbox_dir',
-                        help='directory with bbox',
+                        help='Directory with bbox. Only meaningful for --extract-mode bbox_feats.',
                         default="bbox")
     parser.add_argument("--fastmode", action="store_true", help="whether to use multi cpus to extract faster.",)
 
@@ -127,16 +161,17 @@ def main():
     cfg = setup(args)
     num_gpus = len(args.gpu_id.split(','))
     print(args.mode)
-    if args.fastmode: # faster.py
+    if args.fastmode:  # faster.py
         print("faster")
-        extract_feat_faster_start(args,cfg)
+        extract_feat_faster_start(args, cfg)
     else:  # multi or single
-        if num_gpus == 1: # without ray
+        if num_gpus == 1:  # without ray
             print("single")
-            extract_feat_singlegpu_start(args,cfg)
-        else: # use ray to accelerate
+            extract_feat_singlegpu_start(args, cfg)
+        else:  # use ray to accelerate
             print("multi")
-            extract_feat_multigpu_start(args,cfg)
+            extract_feat_multigpu_start(args, cfg)
+
 
 if __name__ == "__main__":
     main()

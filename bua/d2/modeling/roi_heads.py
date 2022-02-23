@@ -22,6 +22,8 @@ from bua.caffe.modeling.box_regression import BUABox2BoxTransform
 """
 roi head for mode detectron2
 """
+
+
 @ROI_BOX_HEAD_REGISTRY.register()
 class AttributeFastRCNNConvFCHead(FastRCNNConvFCHead):
     """
@@ -38,6 +40,7 @@ class AttributeFastRCNNConvFCHead(FastRCNNConvFCHead):
                 y = x
                 x = F.relu(layer(y))
         return x, y
+
 
 class AttributePredictor(nn.Module):
     """
@@ -101,6 +104,7 @@ class AttributeROIHeads(ROIHeads):
     def forward_attribute_score(self, box_features, obj_labels):
         attribute_scores = self.attribute_predictor(box_features, obj_labels)
         return attribute_scores
+
     def forward_attribute_loss(self, proposals, box_features):
         proposals, fg_selection_attributes = select_foreground_proposals(
             proposals, self.num_classes
@@ -110,6 +114,7 @@ class AttributeROIHeads(ROIHeads):
         attribute_labels = torch.cat([p.gt_attributes for p in proposals], dim=0)
         attribute_scores = self.attribute_predictor(attribute_features, obj_labels)
         return self.attribute_predictor.loss(attribute_scores, attribute_labels)
+
     def forward_attr(self, proposals, box_features):
         proposals, fg_selection_attributes = select_foreground_proposals(
             proposals, self.num_classes
@@ -169,7 +174,7 @@ class AttributeRes5ROIHeads(AttributeROIHeads, Res5ROIHeads):
         if self.attribute_on:
             self.attribute_predictor = AttributePredictor(cfg, out_channels)
 
-    def forward(self, images, features, proposals, targets=None):
+    def forward(self, images, features, proposals, targets=None, return_logits=False):
         del images
 
         if self.training:
@@ -200,14 +205,29 @@ class AttributeRes5ROIHeads(AttributeROIHeads, Res5ROIHeads):
         elif self.extract_on:
             pred_class_logits, pred_proposal_deltas = predictions
             # pred_class_logits = pred_class_logits[:, :-1]  # background is last
-            cls_lables = torch.argmax(pred_class_logits, dim=1)
+            cls_labels = torch.argmax(pred_class_logits, dim=1)
             num_preds_per_image = [len(p) for p in proposals]
             if self.extractor_mode == 1 or self.extractor_mode == 3:
                 if self.attribute_on:
-                    attr_scores = self.forward_attribute_score(feature_pooled, cls_lables)
-                    return proposal_boxes, self.predict_probs(pred_class_logits, num_preds_per_image), feature_pooled.split(num_preds_per_image, dim=0), attr_scores.split(num_preds_per_image, dim=0)
+                    attr_scores = self.forward_attribute_score(feature_pooled, cls_labels)
+                    output = [
+                        proposal_boxes,
+                        self.predict_probs(pred_class_logits, num_preds_per_image),
+                        feature_pooled.split(num_preds_per_image, dim=0),
+                        attr_scores.split(num_preds_per_image, dim=0),
+                    ]
+                    if return_logits:
+                        output.append(pred_class_logits.split(num_preds_per_image, dim=0))
+                    return output
                 else:
-                    return proposal_boxes, self.predict_probs(pred_class_logits, num_preds_per_image), feature_pooled.split(num_preds_per_image, dim=0)
+                    output = [
+                        proposal_boxes,
+                        self.predict_probs(pred_class_logits, num_preds_per_image),
+                        feature_pooled.split(num_preds_per_image, dim=0),
+                    ]
+                    if return_logits:
+                        output.append(pred_class_logits.split(num_preds_per_image, dim=0))
+                    return output
             elif self.extractor_mode == 2:
                 return self.predict_boxes(proposals, pred_proposal_deltas, num_preds_per_image), self.predict_probs(pred_class_logits, num_preds_per_image)
             else:
@@ -262,6 +282,7 @@ class AttributeRes5ROIHeads(AttributeROIHeads, Res5ROIHeads):
         probs = F.softmax(pred_class_logits, dim=-1)
         probs = probs[:, :-1]  # background is last
         return probs.split(num_preds_per_image, dim=0)
+
 
 @ROI_HEADS_REGISTRY.register()
 class AttributeStandardROIHeads(AttributeROIHeads, StandardROIHeads):
@@ -345,5 +366,5 @@ class AttributeStandardROIHeads(AttributeROIHeads, StandardROIHeads):
     def get_roi_features(self, features, proposals):
         features = [features[f] for f in self.in_features]
         box_features = self.box_pooler(features, [x.proposal_boxes for x in proposals])
-        fc7, fc6  = self.box_head(box_features)
+        fc7, fc6 = self.box_head(box_features)
         return box_features, fc7, fc6

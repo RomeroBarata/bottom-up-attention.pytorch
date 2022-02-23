@@ -35,6 +35,8 @@ from ray.actor import ActorHandle
 """
 use ray to accelerate multi gpu
 """
+
+
 def switch_extract_mode(mode):
     if mode == 'roi_feats':
         switch_cmd = ['MODEL.BUA.EXTRACTOR.MODE', 1]
@@ -46,6 +48,7 @@ def switch_extract_mode(mode):
         print('Wrong extract mode! ')
         exit()
     return switch_cmd
+
 
 def set_min_max_boxes(min_max_boxes):
     if min_max_boxes == 'min_max_default':
@@ -60,6 +63,7 @@ def set_min_max_boxes(min_max_boxes):
             'MODEL.BUA.EXTRACTOR.MAX_BOXES', max_boxes]
     return cmd
 
+
 def setup(args):
     """
     Create configs and perform basic setups.
@@ -68,12 +72,13 @@ def setup(args):
     add_config(args, cfg)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
-    cfg.merge_from_list(['MODEL.BUA.EXTRACT_FEATS',True])
+    cfg.merge_from_list(['MODEL.BUA.EXTRACT_FEATS', True])
     cfg.merge_from_list(switch_extract_mode(args.extract_mode))
     cfg.merge_from_list(set_min_max_boxes(args.min_max_boxes))
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
+
 
 def generate_npz(extract_mode, *args):
     if extract_mode == 1:
@@ -84,6 +89,7 @@ def generate_npz(extract_mode, *args):
         save_roi_features_by_bbox(*args)
     else:
         print('Invalid Extract Mode! ')
+
 
 def model_inference(model, batched_inputs, args, attribute_on=False):
     if args.mode == "caffe":
@@ -102,8 +108,9 @@ def model_inference(model, batched_inputs, args, attribute_on=False):
     else:
         raise Exception("detection model not supported: {}".format(args.model))
 
+
 @ray.remote(num_gpus=1)
-def extract_feat_multigpu(split_idx, img_list, cfg, args, actor: ActorHandle): # NOTE ray  
+def extract_feat_multigpu(split_idx, img_list, cfg, args, actor: ActorHandle):  # NOTE ray
     num_images = len(img_list)
     print('Number of images on split{}: {}.'.format(split_idx, num_images))
 
@@ -113,14 +120,14 @@ def extract_feat_multigpu(split_idx, img_list, cfg, args, actor: ActorHandle): #
     )
     model.eval()
 
-    for im_file in (img_list):
+    for im_file in img_list:
         if os.path.exists(os.path.join(args.output_dir, im_file.split('.')[0]+'.npz')):
             actor.update.remote(1)  # NOTE ray
             continue
         im = cv2.imread(os.path.join(args.image_dir, im_file))
         if im is None:
             print(os.path.join(args.image_dir, im_file), "is illegal!")
-            actor.update.remote(1) # NOTE ray
+            actor.update.remote(1)  # NOTE ray
             continue
         dataset_dict = get_image_blob(im, cfg.MODEL.PIXEL_MEAN)
         # extract roi features
@@ -192,7 +199,7 @@ def main():
                         default='0', type=str)
 
     parser.add_argument("--mode", default="caffe", type=str, help="'caffe' and 'd2' indicates \
-                        'use caffe model' and 'use detectron2 model'respectively")
+                        'use caffe model' and 'use detectron2 model', respectively")
 
     parser.add_argument('--extract-mode', default='roi_feats', type=str,
                         help="'roi_feats', 'bboxes' and 'bbox_feats' indicates \
@@ -228,7 +235,8 @@ def main():
     cfg = setup(args)
     extract_feat_multigpu_start(args,cfg)
 
-def extract_feat_multigpu_start(args,cfg):
+
+def extract_feat_multigpu_start(args, cfg):
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
     num_gpus = len(args.gpu_id.split(','))
 
