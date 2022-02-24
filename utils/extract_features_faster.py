@@ -34,6 +34,8 @@ from ray.actor import ActorHandle
 """
 add ray to generate_npz
 """
+
+
 def switch_extract_mode(mode):
     if mode == 'roi_feats':
         switch_cmd = ['MODEL.BUA.EXTRACTOR.MODE', 1]
@@ -45,6 +47,7 @@ def switch_extract_mode(mode):
         print('Wrong extract mode! ')
         exit()
     return switch_cmd
+
 
 def set_min_max_boxes(min_max_boxes):
     if min_max_boxes == 'min_max_default':
@@ -58,6 +61,7 @@ def set_min_max_boxes(min_max_boxes):
     cmd = ['MODEL.BUA.EXTRACTOR.MIN_BOXES', min_boxes, 
             'MODEL.BUA.EXTRACTOR.MAX_BOXES', max_boxes]
     return cmd
+
 
 def setup(args):
     """
@@ -74,6 +78,7 @@ def setup(args):
     default_setup(cfg, args)
     return cfg
 
+
 @ray.remote
 def generate_npz(extract_mode, pba: ActorHandle, *args):
     if extract_mode == 1:
@@ -86,7 +91,8 @@ def generate_npz(extract_mode, pba: ActorHandle, *args):
         print('Invalid Extract Mode! ')
     pba.update.remote(1)
 
-def model_inference(model, batched_inputs, args, attribute_on=False):
+
+def model_inference(model, batched_inputs, args, attribute_on=False, return_logits=False):
     if args.mode == "caffe":
         return model(batched_inputs)
     elif args.mode == "d2":
@@ -99,9 +105,10 @@ def model_inference(model, batched_inputs, args, attribute_on=False):
             assert "proposals" in batched_inputs[0]
             proposals = [x["proposals"].to(model.device) for x in batched_inputs]
         
-        return model.roi_heads(images, features, proposals, None)
+        return model.roi_heads(images, features, proposals, None, return_logits)
     else:
         raise Exception("detection model not supported: {}".format(args.model))
+
 
 @ray.remote(num_gpus=1)
 def extract_feat_faster(split_idx, img_list, cfg, args, actor: ActorHandle):
@@ -115,7 +122,7 @@ def extract_feat_faster(split_idx, img_list, cfg, args, actor: ActorHandle):
     model.eval()
 
     generate_npz_list = []
-    for im_file in (img_list):
+    for im_file in img_list:
         if os.path.exists(os.path.join(args.output_dir, im_file.split('.')[0]+'.npz')):
             actor.update.remote(1)
             continue
@@ -130,26 +137,29 @@ def extract_feat_faster(split_idx, img_list, cfg, args, actor: ActorHandle):
             attr_scores = None
             with torch.set_grad_enabled(False):
                 if cfg.MODEL.BUA.ATTRIBUTE_ON:
-                    boxes, scores, features_pooled, attr_scores = model_inference(model, [dataset_dict],args,True)
+                    boxes, scores, features_pooled, attr_scores, logits = \
+                        model_inference(model, [dataset_dict], args, attribute_on=True, return_logits=True)
                 else:
-                    boxes, scores, features_pooled = model_inference(model, [dataset_dict],args,False)
+                    boxes, scores, features_pooled, logits = model_inference(model, [dataset_dict], args,
+                                                                             attribute_on=False, return_logits=True)
             boxes = [box.tensor.cpu() for box in boxes]
+            logits = [logit.cpu() for logit in logits]
             scores = [score.cpu() for score in scores]
             features_pooled = [feat.cpu() for feat in features_pooled]
-            if not attr_scores is None:
+            if attr_scores is not None:
                 attr_scores = [attr_score.cpu() for attr_score in attr_scores]
-            generate_npz_list.append(generate_npz.remote(1, actor, 
-                args, cfg, im_file, im, dataset_dict, 
-                boxes, scores, features_pooled, attr_scores))
+            generate_npz_list.append(generate_npz.remote(1, actor,
+                                                         args, cfg, im_file, im, dataset_dict,
+                                                         boxes, scores, features_pooled, logits, attr_scores))
         # extract bbox only
         elif cfg.MODEL.BUA.EXTRACTOR.MODE == 2:
             with torch.set_grad_enabled(False):
                 boxes, scores = model_inference(model, [dataset_dict],args,False)
             boxes = [box.cpu() for box in boxes]
             scores = [score.cpu() for score in scores]
-            generate_npz_list.append(generate_npz.remote(2, actor, 
-                args, cfg, im_file, im, dataset_dict, 
-                boxes, scores))
+            generate_npz_list.append(generate_npz.remote(2, actor,
+                                                         args, cfg, im_file, im, dataset_dict,
+                                                         boxes, scores))
         # extract roi features by bbox
         elif cfg.MODEL.BUA.EXTRACTOR.MODE == 3:
             if not os.path.exists(os.path.join(args.bbox_dir, im_file.split('.')[0]+'.npz')):
@@ -171,9 +181,9 @@ def extract_feat_faster(split_idx, img_list, cfg, args, actor: ActorHandle):
             features_pooled = [feat.cpu() for feat in features_pooled]
             if not attr_scores is None:
                 attr_scores = [attr_score.data.cpu() for attr_score in attr_scores]
-            generate_npz_list.append(generate_npz.remote(3, actor, 
-                args, cfg, im_file, im, dataset_dict, 
-                boxes, scores, features_pooled, attr_scores))
+            generate_npz_list.append(generate_npz.remote(3, actor,
+                                                         args, cfg, im_file, im, dataset_dict,
+                                                         boxes, scores, features_pooled, attr_scores))
 
     ray.get(generate_npz_list)
 
@@ -230,15 +240,12 @@ def main():
     cfg = setup(args)
     extract_feat_faster_start(args,cfg)
 
-def extract_feat_faster_start(args,cfg):
+
+def extract_feat_faster_start(args, cfg):
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
     num_gpus = len(args.gpu_id.split(','))
 
-    MIN_BOXES = cfg.MODEL.BUA.EXTRACTOR.MIN_BOXES
-    MAX_BOXES = cfg.MODEL.BUA.EXTRACTOR.MAX_BOXES
-    CONF_THRESH = cfg.MODEL.BUA.EXTRACTOR.CONF_THRESH
-
-    # Extract features.
+    # Extract features
     imglist = os.listdir(args.image_dir)
     num_images = len(imglist)
     print('Number of images: {}.'.format(num_images))
@@ -256,10 +263,11 @@ def extract_feat_faster_start(args,cfg):
     extract_feat_list = []
     for i in range(num_gpus):
         extract_feat_list.append(extract_feat_faster.remote(i, img_lists[i], cfg, args, actor))
-    
+
     pb.print_until_done()
     ray.get(extract_feat_list)
     ray.get(actor.get_counter.remote())
+
 
 if __name__ == "__main__":
     main()
