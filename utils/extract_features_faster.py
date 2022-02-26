@@ -121,6 +121,7 @@ def extract_feat_faster(split_idx, img_list, cfg, args, actor: ActorHandle):
     )
     model.eval()
 
+    mode = cfg.MODEL.BUA.EXTRACTOR.MODE
     generate_npz_list = []
     for im_file in img_list:
         if os.path.exists(os.path.join(args.output_dir, im_file.split('.')[0]+'.npz')):
@@ -133,7 +134,7 @@ def extract_feat_faster(split_idx, img_list, cfg, args, actor: ActorHandle):
             continue
         dataset_dict = get_image_blob(im, cfg.MODEL.PIXEL_MEAN)
         # extract roi features
-        if cfg.MODEL.BUA.EXTRACTOR.MODE == 1:
+        if mode == 1:
             attr_scores = None
             with torch.set_grad_enabled(False):
                 if cfg.MODEL.BUA.ATTRIBUTE_ON:
@@ -148,24 +149,26 @@ def extract_feat_faster(split_idx, img_list, cfg, args, actor: ActorHandle):
             features_pooled = [feat.cpu() for feat in features_pooled]
             if attr_scores is not None:
                 attr_scores = [attr_score.cpu() for attr_score in attr_scores]
-            generate_npz_list.append(generate_npz.remote(1, actor,
+            generate_npz_list.append(generate_npz.remote(mode, actor,
                                                          args, cfg, im_file, im, dataset_dict,
                                                          boxes, scores, features_pooled, logits, attr_scores))
         # extract bbox only
-        elif cfg.MODEL.BUA.EXTRACTOR.MODE == 2:
+        elif mode == 2:
             with torch.set_grad_enabled(False):
-                boxes, scores = model_inference(model, [dataset_dict],args,False)
+                boxes, scores = model_inference(model, [dataset_dict], args, False)
             boxes = [box.cpu() for box in boxes]
             scores = [score.cpu() for score in scores]
-            generate_npz_list.append(generate_npz.remote(2, actor,
+            generate_npz_list.append(generate_npz.remote(mode, actor,
                                                          args, cfg, im_file, im, dataset_dict,
                                                          boxes, scores))
         # extract roi features by bbox
-        elif cfg.MODEL.BUA.EXTRACTOR.MODE == 3:
-            if not os.path.exists(os.path.join(args.bbox_dir, im_file.split('.')[0]+'.npz')):
+        elif mode == 3:
+            bbox_path = os.path.join(args.bbox_dir, im_file.split('.')[0] + '.npy')
+            if not os.path.exists(bbox_path):
                 actor.update.remote(1)
                 continue
-            bbox = torch.from_numpy(np.load(os.path.join(args.bbox_dir, im_file.split('.')[0]+'.npz'))['bbox']) * dataset_dict['im_scale']
+            bbox = np.load(bbox_path)
+            bbox = torch.from_numpy(bbox) * dataset_dict['im_scale']
             proposals = Instances(dataset_dict['image'].shape[-2:])
             proposals.proposal_boxes = BUABoxes(bbox)
             dataset_dict['proposals'] = proposals
@@ -173,17 +176,20 @@ def extract_feat_faster(split_idx, img_list, cfg, args, actor: ActorHandle):
             attr_scores = None
             with torch.set_grad_enabled(False):
                 if cfg.MODEL.BUA.ATTRIBUTE_ON:
-                    boxes, scores, features_pooled, attr_scores = model_inference(model, [dataset_dict],args,True)
+                    boxes, scores, features_pooled, attr_scores, logits = \
+                        model_inference(model, [dataset_dict], args, attribute_on=True, return_logits=True)
                 else:
-                    boxes, scores, features_pooled = model_inference(model, [dataset_dict],args,False)
+                    boxes, scores, features_pooled, logits = model_inference(model, [dataset_dict], args,
+                                                                             attribute_on=False, return_logits=True)
             boxes = [box.tensor.cpu() for box in boxes]
+            logits = [logit.cpu() for logit in logits]
             scores = [score.cpu() for score in scores]
             features_pooled = [feat.cpu() for feat in features_pooled]
-            if not attr_scores is None:
+            if attr_scores is not None:
                 attr_scores = [attr_score.data.cpu() for attr_score in attr_scores]
-            generate_npz_list.append(generate_npz.remote(3, actor,
+            generate_npz_list.append(generate_npz.remote(mode, actor,
                                                          args, cfg, im_file, im, dataset_dict,
-                                                         boxes, scores, features_pooled, attr_scores))
+                                                         boxes, scores, features_pooled, logits, attr_scores))
 
     ray.get(generate_npz_list)
 
@@ -238,7 +244,7 @@ def main():
     args = parser.parse_args()
 
     cfg = setup(args)
-    extract_feat_faster_start(args,cfg)
+    extract_feat_faster_start(args, cfg)
 
 
 def extract_feat_faster_start(args, cfg):

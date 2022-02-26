@@ -142,43 +142,32 @@ def save_bbox(args, cfg, im_file, im, dataset_dict, boxes, scores):
                         image_h=np.size(im, 0), image_w=np.size(im, 1))
 
 
-def save_roi_features_by_bbox(args, cfg, im_file, im, dataset_dict, boxes, scores, features_pooled, logits, attr_scores=None):
-    MIN_BOXES = cfg.MODEL.BUA.EXTRACTOR.MIN_BOXES
-    MAX_BOXES = cfg.MODEL.BUA.EXTRACTOR.MAX_BOXES
-    CONF_THRESH = cfg.MODEL.BUA.EXTRACTOR.CONF_THRESH
+def save_roi_features_by_bbox(args, cfg, im_file, im, dataset_dict, boxes, scores, features_pooled, logits,
+                              attr_scores=None):
     dets = boxes[0] / dataset_dict['im_scale']
+    logits = logits[0]
     scores = scores[0]
     feats = features_pooled[0]
     keep_boxes = [i for i in range(scores.shape[0])]
 
+    image_logits = logits[keep_boxes]
     image_feat = feats[keep_boxes]
     image_bboxes = dets[keep_boxes]
-    image_objects_conf = np.max(scores[keep_boxes].numpy()[:,1:], axis=1)
-    image_objects = np.argmax(scores[keep_boxes].numpy()[:,1:], axis=1)
+    image_objects_conf = np.max(scores[keep_boxes].numpy(), axis=1)
+    image_objects = np.argmax(scores[keep_boxes].numpy(), axis=1)
+    info = {}
     if attr_scores is not None:
-        attr_scores = attr_scores[0]
-        image_attrs_conf = np.max(attr_scores[keep_boxes].numpy()[:,1:], axis=1)
-        image_attrs = np.argmax(attr_scores[keep_boxes].numpy()[:,1:], axis=1)
+        image_attr_logits = attr_scores[0][keep_boxes].numpy()
+        image_attr_probs = softmax(image_attr_logits, axis=-1)
+        image_attr_scores = np.max(image_attr_probs, axis=-1)
+        image_attr_classes = np.argmax(image_attr_logits, axis=-1)
         info = {
-            'image_id': im_file.split('.')[0],
-            'image_h': np.size(im, 0),
-            'image_w': np.size(im, 1),
-            'num_boxes': len(keep_boxes),
-            'objects_id': image_objects,
-            'objects_conf': image_objects_conf,
-            'attrs_id': image_attrs,
-            'attrs_conf': image_attrs_conf,
-            }
-    else:
-        info = {
-            'image_id': im_file.split('.')[0],
-            'image_h': np.size(im, 0),
-            'image_w': np.size(im, 1),
-            'num_boxes': len(keep_boxes),
-            'objects_id': image_objects,
-            'objects_conf': image_objects_conf
-            }
-
+            'attr_logits': image_attr_logits,
+            'attr_classes': image_attr_classes,
+            'attr_scores': image_attr_scores,
+        }
     output_file = os.path.join(args.output_dir, im_file.split('.')[0])
-    np.savez_compressed(output_file, x=image_feat, bbox=image_bboxes, num_bbox=len(keep_boxes),
-                        image_h=np.size(im, 0), image_w=np.size(im, 1), info=info)
+    np.savez_compressed(output_file,
+                        features=image_feat, bounding_boxes=image_bboxes, classes_logits=image_logits,
+                        pred_classes=image_objects, scores=image_objects_conf,
+                        image_h=np.size(im, 0), image_w=np.size(im, 1), **info)
