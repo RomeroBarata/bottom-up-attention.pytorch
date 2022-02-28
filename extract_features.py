@@ -128,11 +128,12 @@ def main():
                         'extract roi features with pre-computed bboxes', respectively")
 
     parser.add_argument('--min-max-boxes', default='min_max_default', type=str, 
-                        help='the number of min-max boxes of extractor')
+                        help='Number of min-max boxes of extractor. Ignored if --extract-mode is bbox_feats.')
     parser.add_argument('--conf-thresh', default='conf_thresh_default', type=str,
-                        help='The confidence threshold to keep detected objects.')
+                        help='The confidence threshold to keep detected objects. Ignored '
+                             'if --extract-mode is bbox_feats')
     parser.add_argument('--nms-thresh', default='nms_default', type=str,
-                        help='NMS value for filtering detections.')
+                        help='NMS value for filtering detections. Ignored if --extract_mode is bbox_feats.')
 
     parser.add_argument('--out-dir', dest='output_dir',
                         help='Output directory for features. A subdirectory is is created in it for the specific '
@@ -145,7 +146,7 @@ def main():
     parser.add_argument('--bbox-dir', dest='bbox_dir',
                         help='Directory with bbox. Only meaningful for --extract-mode bbox_feats.',
                         default="bbox")
-    parser.add_argument("--fastmode", action="store_true", help="whether to use multi cpus to extract faster.",)
+    parser.add_argument("--fastmode", action="store_true", help="Whether to use multi cpus to extract faster.")
 
     parser.add_argument(
         "--resume",
